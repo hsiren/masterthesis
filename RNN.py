@@ -134,7 +134,7 @@ def train(data, model, device):
             
             # Putting batch to device
             batch_feats.to(device)
-            batch_lsbels.to(device)
+            batch_labels.to(device)
             
             # Forward pass
             y_pred = model(batch_feats)
