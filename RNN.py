@@ -108,10 +108,13 @@ def predict_gap(sequence, model, one_datapoint=True):
             sequence.loc[[ind]] = predicted_out.loc[[ind]]
     return sequence
 
-def train(data, model):
+def train(data, model, device):
     print("--- Train ---")
     epochs = EPOCHS
     loss_list = []
+    
+    print("Putting model to device...")
+    model = model.to(device)
     
     # --- Why some losses do not work and some do? --- #
     #loss_fn = nn.CrossEntropyLoss()#weight=torch.Tensor(CLASS_WEIGHT))
@@ -128,7 +131,11 @@ def train(data, model):
     running_loss = 0.0
     for epoch in tqdm(range(EPOCHS)):
         for batch_feats, batch_labels in data:
-
+            
+            # Putting batch to device
+            batch_feats.to(device)
+            batch_lsbels.to(device)
+            
             # Forward pass
             y_pred = model(batch_feats)
             
@@ -220,7 +227,7 @@ def main():
     """
     
     print("Training start:")
-    train(sequenced_batches, model)
+    train(sequenced_batches, model, device)
 
 main()
         

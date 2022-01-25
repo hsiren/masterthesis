@@ -31,7 +31,7 @@ DATA_PATHS = FEAT_PATHS
 
 # Hyperparameters:
 SEQUENCE_LENGTH = 10
-EPOCHS = 40
+EPOCHS = 20
 HIDDEN_DIM = 10
 LAYER_DIM = 8
 # Loss weight:
