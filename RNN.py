@@ -60,7 +60,10 @@ class RNN(nn.Module):
         #print("h0:", h0.shape)
         #print("x:", x.shape)
         
-      
+        print("---------------------")
+        print("x:", x.get_device())
+        print("h0:", h0.get_device())
+        print("---------------------")      
         # TODO: Check
         # Format data type
         x = x.float()
