@@ -138,8 +138,8 @@ def train(train, test, model, device):
         for batch_feats, batch_labels in data:
             
             # Putting batch to device
-            batch_feats.to(device)
-            batch_labels.to(device)
+            batch_feats = batch_feats.to(device)
+            batch_labels = batch_labels.to(device)
             print("---------------------")
             print("batch_feats:", batch_feats.get_device())
             print("batch_labels:", batch_labels.get_device())
