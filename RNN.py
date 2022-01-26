@@ -14,14 +14,15 @@ from datahandler import *
 import math
 from tqdm import tqdm, trange
 
-from params import FEAT_LIST, EPOCHS, HIDDEN_DIM, LAYER_DIM, CLASS_WEIGHT
+from params import FEAT_LIST, EPOCHS, HIDDEN_DIM, LAYER_DIM, LEARNING_RATE, CLASS_WEIGHT
 
 
 class RNN(nn.Module):
     
-    def __init__(self, input_dim, output_dim, hidden_dim, layer_dim, bidirectional=False):
+    def __init__(self, input_dim, output_dim, hidden_dim, layer_dim, device="cpu", bidirectional=False):
         super(RNN, self).__init__()
         
+        self.device = device        
         self.hidden_dim = hidden_dim
         self.layer_dim = layer_dim
         
@@ -55,7 +56,7 @@ class RNN(nn.Module):
 
         # Initialize hidden-state for first input
         # h0: (D*num_layers, N, h_out) --> (1, 1, 5)
-        h0 = torch.zeros(self.layer_dim, N, h_out).requires_grad_()
+        h0 = torch.zeros(self.layer_dim, N, h_out).requires_grad_().to(self.device)
         #print("h0:", h0.shape)
         #print("x:", x.shape)
         
@@ -89,7 +90,7 @@ class RNN(nn.Module):
         #print("--- Forward ---")
         return out
 
-# Predict gaps in data (NaN-values) (NOT USED)
+# (NOT USED)
 def predict_gap(sequence, model, one_datapoint=True):
     predicted_out = model.predict_sequence()
     inds = sequence.loc[pd.isnull(sequence).any(1), :].index.values
@@ -108,10 +109,11 @@ def predict_gap(sequence, model, one_datapoint=True):
             sequence.loc[[ind]] = predicted_out.loc[[ind]]
     return sequence
 
-def train(data, model, device):
+def train(train, test, model, device):
     print("--- Train ---")
     epochs = EPOCHS
     loss_list = []
+    test_loss_list = []
     
     print("Putting model to device...")
     model = model.to(device)
@@ -120,16 +122,16 @@ def train(data, model, device):
     #loss_fn = nn.CrossEntropyLoss()#weight=torch.Tensor(CLASS_WEIGHT))
     #loss_fn = nn.MSELoss()
     #loss_fn = nn.L1Loss()
-    
     #loss_fn = nn.BCELoss(weight=torch.Tensor(CLASS_WEIGHT))
     loss_fn = nn.BCELoss() # TODO: Motivate
     # --- Why some losses do not work and some do? --- #
-    
-    optimizer = torch.optim.Adam(model.parameters(), lr=0.1)
+        
+    optimizer = torch.optim.Adam(model.parameters(), lr=LEARNING_RATE)
+    data = train
     print("Len data:", len(data))
     print("batch:", type(data[0]))
-    running_loss = 0.0
     for epoch in tqdm(range(EPOCHS)):
+        train_loss = 0.0
         for batch_feats, batch_labels in data:
             
             # Putting batch to device
@@ -146,22 +148,56 @@ def train(data, model, device):
             # Loss computation  
             loss = loss_fn(y_pred, y)
             
-        
             ### TODO: CHECK ###
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
             ### TODO: CHECK ###
             
+            
+            """
+            print("bf:", batch_feats.shape)
+            batch_feats.shape[0]: Batch size
+            batch_feats.shape[1]: Sequence length
+            batch_feats.shape[2]: N sequences
+            """
+            #print("bl:", batch_labels.shape)
+            #raise Exception("STOP")
+            
             # Save loss
-            #running_loss = running_loss + loss.item()
+            train_loss = train_loss + loss.item() * batch_feats.shape[0]
             #loss_list.append(running_loss)
-            loss_list.append(loss.item())
+            #loss_list.append(loss.item())
             #raise Exception("PAUSE")
+        #loss_list.append(loss.item())
+        #print(batch_labels.shape[1])
+        #print("len(data)", len(data))
+        loss_list.append(train_loss/len(data))
+
+        # Validation: TODO: Check for no gradient updates
+        with torch.no_grad():
+            test_loss = 0.0
+            for feats, labels in test:
+                #if torch.cuda.is_available():
+                    #data, labels = data.cuda(), labels.cuda()
+                
+                y_pred_test = model(feats)
+                #print("y_pred_test:", y_pred_test.shape)
+                #print("labels:", labels.shape)
+                # Format labels
+                label_tuple = torch.max(labels, dim=1)
+                y_test = label_tuple[0]
+                
+                loss = loss_fn(y_pred_test, y_test)
+                test_loss = test_loss + loss.item() * feats.shape[0]
+        #test_loss_list.append(test_loss)
+        test_loss_list.append(test_loss/len(test))
             
     print("Plotting:")
     #print("loss_list:", loss_list)
-    plt.plot(loss_list)
+    print("lentest:", len(test_loss_list), "lentrain:", len(loss_list))
+    plt.plot(loss_list, "b")
+    plt.plot(test_loss_list, "r")
     plt.show()
     print("Plotted.")
 
@@ -180,14 +216,13 @@ def main():
     quickPrint(data)
     batched_data = batchify(data)
     sequenced_batches = sequencify(batched_data)
-    
+    train_set, test_set = splitData(sequenced_batches, test_size=0.3, shuffle=False)
     print("--- Reading data done ---")
 
     """
     TODO:
         Makes sure all is pushed to the GPU (function in class)
     """
-    
     # Get batch
     #print("n_batches:", len(sequenced_batches))
     #batch0 = sequenced_batches[0]
@@ -204,7 +239,7 @@ def main():
     layer_dim = LAYER_DIM
 
     print("Initializing model:")
-    model = RNN(input_dim, output_dim, hidden_dim, layer_dim, bidirectional=True)
+    model = RNN(input_dim, output_dim, hidden_dim, layer_dim, device, bidirectional=True)
     
     """
     batch0 = sequenced_batches[0]
@@ -227,7 +262,7 @@ def main():
     """
     
     print("Training start:")
-    train(sequenced_batches, model, device)
+    train(train_set, test_set, model, device)
 
 main()
         
