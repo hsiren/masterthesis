@@ -140,6 +140,10 @@ def train(train, test, model, device):
             # Putting batch to device
             batch_feats.to(device)
             batch_labels.to(device)
+            print("---------------------")
+            print("batch_feats:", batch_feats.get_device())
+            print("batch_labels:", batch_labels.get_device())
+            print("---------------------")    
             
             # Forward pass
             y_pred = model(batch_feats)
