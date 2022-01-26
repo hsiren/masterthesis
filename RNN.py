@@ -187,6 +187,8 @@ def train(train, test, model, device):
             for feats, labels in test:
                 #if torch.cuda.is_available():
                     #data, labels = data.cuda(), labels.cuda()
+                feats = feats.to(device)
+                labels = labels.to(device)
                 
                 y_pred_test = model(feats)
                 #print("y_pred_test:", y_pred_test.shape)
