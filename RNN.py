@@ -59,15 +59,16 @@ class RNN(nn.Module):
         h0 = torch.zeros(self.layer_dim, N, h_out).requires_grad_().to(self.device)
         #print("h0:", h0.shape)
         #print("x:", x.shape)
-        
-        print("---------------------")
-        print("x:", x.get_device())
-        print("h0:", h0.get_device())
-        print("---------------------")      
         # TODO: Check
         # Format data type
         x = x.float()
         h0 = h0.float()
+        
+        
+        print("---------------------")
+        print("x:", x.get_device())
+        print("h0:", h0.get_device())
+        print("---------------------")
         
         # Forward pass
         out, h0 = self.rnn(x, h0) #h0.detach()
@@ -137,13 +138,10 @@ def train(train, test, model, device):
         train_loss = 0.0
         for batch_feats, batch_labels in data:
             
-            # Putting batch to device
+            # --- Putting to device --- #
             batch_feats = batch_feats.to(device)
             batch_labels = batch_labels.to(device)
-            print("---------------------")
-            print("batch_feats:", batch_feats.get_device())
-            print("batch_labels:", batch_labels.get_device())
-            print("---------------------")    
+            # --- Putting to device --- #
             
             # Forward pass
             y_pred = model(batch_feats)
@@ -187,8 +185,11 @@ def train(train, test, model, device):
             for feats, labels in test:
                 #if torch.cuda.is_available():
                     #data, labels = data.cuda(), labels.cuda()
+                
+                # --- Putting to device --- #
                 feats = feats.to(device)
                 labels = labels.to(device)
+                # --- Putting to device --- #
                 
                 y_pred_test = model(feats)
                 #print("y_pred_test:", y_pred_test.shape)
