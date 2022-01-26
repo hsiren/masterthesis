@@ -13,6 +13,7 @@ import numpy as np
 from datahandler import *
 import math
 from tqdm import tqdm, trange
+from time import time
 
 from params import FEAT_LIST, EPOCHS, HIDDEN_DIM, LAYER_DIM, LEARNING_RATE, CLASS_WEIGHT
 
@@ -57,18 +58,11 @@ class RNN(nn.Module):
         # Initialize hidden-state for first input
         # h0: (D*num_layers, N, h_out) --> (1, 1, 5)
         h0 = torch.zeros(self.layer_dim, N, h_out).requires_grad_().to(self.device)
-        #print("h0:", h0.shape)
-        #print("x:", x.shape)
+        
         # TODO: Check
         # Format data type
         x = x.float()
         h0 = h0.float()
-        
-        
-        print("---------------------")
-        print("x:", x.get_device())
-        print("h0:", h0.get_device())
-        print("---------------------")
         
         # Forward pass
         out, h0 = self.rnn(x, h0) #h0.detach()
@@ -87,11 +81,6 @@ class RNN(nn.Module):
         out = self.fc(out)
         out = self.sigmoid(out)
         
-        #print("out:", out.shape)
-        #print(out[:10])
-        #print("x:")
-        #print(x[:10])
-        #print("--- Forward ---")
         return out
 
 # (NOT USED)
@@ -134,6 +123,7 @@ def train(train, test, model, device):
     data = train
     print("Len data:", len(data))
     print("batch:", type(data[0]))
+    time_start = time()
     for epoch in tqdm(range(EPOCHS)):
         train_loss = 0.0
         for batch_feats, batch_labels in data:
@@ -202,14 +192,17 @@ def train(train, test, model, device):
                 test_loss = test_loss + loss.item() * feats.shape[0]
         #test_loss_list.append(test_loss)
         test_loss_list.append(test_loss/len(test))
-            
+    
     print("Plotting:")
     #print("loss_list:", loss_list)
-    print("lentest:", len(test_loss_list), "lentrain:", len(loss_list))
+    #print("lentest:", len(test_loss_list), "lentrain:", len(loss_list))
     plt.plot(loss_list, "b")
     plt.plot(test_loss_list, "r")
     plt.show()
     print("Plotted.")
+    time_end = time()
+    
+    print("Total time: " + str(time_end-time_start) + "s")
 
 # TODO: Accuracy metrics etc.
 def main():
