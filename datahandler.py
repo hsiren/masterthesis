@@ -7,8 +7,10 @@ Created on Mon Jan 10 19:13:57 2022
 from utils import *
 import  numpy as np
 import pandas as pd
+import random
 import matplotlib.pyplot as plt
 from sklearn.preprocessing import MinMaxScaler
+from sklearn.model_selection import train_test_split
 from tqdm import tqdm
 import math
 import torch
@@ -434,12 +436,77 @@ def sequencify(batched_data):
     # raise Exception("PAUSE FINAL")
     return sequenced_batches
 
+def splitData(sequenced_batches, test_size=0.3, shuffle=False):
+    n_batches = len(sequenced_batches)
+    #print("N_batches:", n_batches)
+    
+    n_test = int(round(test_size * n_batches))
+    n_train = n_batches - n_test
+    if shuffle:
+        random.shuffle(sequenced_batches)
+    
+    """
+    # --- Check sentence lengths --- #
+    n_sequences = 0
+    ind = 0
+    sorting_dict = {}
+    batch_sizes = []
+    for batch in sequenced_batches:
+        #print("batch:", batch[0].shape)
+        n_sequence = batch[0].shape[0]
+        batch_sizes.append(n_sequence)
+        sorting_dict[str(ind)] = batch
+        n_sequences += n_sequence
+        ind += 1
+        
+    print("n_sequences:", n_sequences, "test:", int(round(n_sequences*test_size)), "train:", n_sequences-int(round(n_sequences*test_size)))
+    test = int(round(n_sequences*test_size))
+    train = n_sequences-int(round(n_sequences*test_size))
+    
+    # Match nr patients with nr sequences
+    train = []
+    test = []
+    button = True
+    for i in range(len(batch_sizes)):
+        max_val = max(batch_sizes)
+        batch_sizes.remove(max_val)
+        if button:
+            train.append(sorting_dict[str(i)])
+            button = False
+        else:
+            test.append(sorting_dict[str(i)])
+            button = True
+    
+    print("train:", len(train))
+    print("test:", len(test))
+    n_train_sequences = 0
+    for train_batch in train:
+        #print("batch:", batch[0].shape)
+        n_train_sequence = train_batch[0].shape[0]
+        n_train_sequences += n_train_sequence
+    print("n_train_sequences:", n_train_sequences)
+
+    n_test_sequences = 0
+    for test_batch in test:
+        #print("batch:", batch[0].shape)
+        n_test_sequence = test_batch[0].shape[0]
+        n_test_sequences += n_test_sequence
+    print("n_test_sequences:", n_test_sequences)
+    raise Exception("PAUSE")
+    """
+    train = sequenced_batches[:n_train]
+    test = sequenced_batches[n_train:]
+    
+    #print("Train:", len(train), "Test:", len(test), "(train+test)", len(train)+len(test), n_batches)
+    return train, test
+
 """
 data = readData(DATA_PATHS[0], raw=False)
 data = preprocess(data, print_minmax=True)
 quickPrint(data)
 batched_data = batchify(data)
 sequenced_batches = sequencify(batched_data)
+train, test, splitData(sequenced_batches, test_size=0.3, shuffle=False)
 """
 # sequenced_batches = sequencify(batched_data)
 
