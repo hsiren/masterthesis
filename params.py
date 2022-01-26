@@ -15,6 +15,7 @@ datahandler.py:
     [] Handle raw data:
         [] Save functionality for raw data for faster processing
     [] Make compatible with GPU
+    [-] Handle data split based on n-sequences (not n_patients)
 RNN.py:
     [] Adjust model for batched data:
         [] Make compatible with GPU
@@ -32,8 +33,9 @@ DATA_PATHS = FEAT_PATHS
 # Hyperparameters:
 SEQUENCE_LENGTH = 10
 EPOCHS = 20
-HIDDEN_DIM = 10
+HIDDEN_DIM = 20
 LAYER_DIM = 8
+LEARNING_RATE = 0.001
 # Loss weight:
 CLASS_WEIGHT = [0.0]
 #N_SEQUENCES = 5000
