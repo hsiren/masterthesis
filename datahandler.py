@@ -164,7 +164,7 @@ def devicePrint(device):
     else:
         mode = "CPU"
     print("===== {Running on} =====")
-    print("\t\t {"+device+"} ")
+    print("{"+device+"} ")
     print("===== {Running on} =====")
     
 def quickPrint(df, name="quickPrint"):
@@ -173,123 +173,77 @@ def quickPrint(df, name="quickPrint"):
         print(col)
     print("Data:\n", df.head)
     print(df.shape)
-    print("---", name, "---")
+    
+    print("group__uid:\n", df["target__y"].unique())
+    print("group__uid:\n", df["target__y"].value_counts())
 
-# --- Depricated --- #
-# Turn data into sequence length tuples with feats and labels.
-def sequenceTuples(data, n_sequences=None, add_rest=False):
-    sequence_tuples = []
-    n = len(data)
-    n_modulo = n % SEQUENCE_LENGTH
-    n_full_sequences = int((n-n_modulo)/SEQUENCE_LENGTH)
     
-    print(n, n_modulo)
-    print(n_full_sequences)
-    for i in tqdm(range(n_full_sequences)):
-        feats = data[FEAT_LIST][i:i+SEQUENCE_LENGTH]
-        labels = data[LABEL][i:i+SEQUENCE_LENGTH]
-        #print("FEATS:", feats.shape)
-        #print("LABELS:", labels.shape)
-        sequence_tuples.append( (feats, labels) )
-        
-        if n_sequences is not None:
-            if i > n_sequences:
-                break
-        #break
-    
-    # TODO: Fix
-    if add_rest:
-        if n_modulo > 0:
-            print(data[FEAT_LIST].shape)
-            feats = data[FEAT_LIST][n_full_sequences*SEQUENCE_LENGTH:]
-            labels = data[FEAT_LIST][n_full_sequences*SEQUENCE_LENGTH:]
-            sequence_tuples.append( (feats, labels) )
-            print("FEATS_rest:", feats.shape)
-            print("LABELS_rest:", labels.shape)
-    
-    #for i in range()
-    return sequence_tuples
-# --- Depricated --- #
+    """
+    patients = df["group__uid"].unique()
+    positive_labels_in_batch = 0
+    sepsis_patients = []
+    for patient in patients:
+        patient_data=df.loc[df['group__uid'] == patient]
+        #print(patient_data.shape)
+        #print("----- Patient -----")
+        #print(patient)
+        #print("Points/patient:", patient_data.shape[0])
+        #print("Labels:", patient_data["target__y"].unique())
+        vc = patient_data["target__y"].value_counts()
+        #print("Value counts:\n", vc, vc.shape[0])
+        if vc.shape[0] == 2:
+            positive_labels_in_batch += 1
+            sepsis_patients.append(patient)
+            print("Points/patient:", patient_data.shape[0])
+        #print("----- Patient -----")
+    print("positive_labels_in_batch:", positive_labels_in_batch)
+    #"""
+    print("---", name, "---")
 
 def batchify(data):
     print("Group__uid:\n", len(data["group__uid"].unique()), data["group__uid"].unique())
     patients = data["group__uid"].unique()
-    patient_batches = []
+    patient_batches = {}
+    sepsis_patients = []
+    switch = True
+    total_points = 0
     for patient in patients:
-        #query_string = 'group__uid=='+patient
-        #print("{"+query_string+"}")
         patient_data=data.loc[data['group__uid'] == patient]
-        print("Points/patient:", patient_data.shape[0])
-        #print(patient_data.columns)
-        #df = data.query(query_string)
-        #print(patient_data.head)
-        patient_batches.append(patient_data)
-        #raise Exception("LOL")
+        vc = patient_data["target__y"].value_counts()
+        if vc.shape[0] == 2:
+            sepsis_patients.append(patient)
+            print("---- " + patient + " ----")
+            print("Points/patient (sepsis):", patient_data.shape[0], "0:", vc[0], "1:", vc[1])
+            x = np.arange(patient_data["target__y"].shape[0])
+            plt.plot(x, patient_data["target__y"])
+            plt.title(patient)
+            plt.show()
+            print("---------------------------------------------")
+
+        else:
+            print("Points/patient:", patient_data.shape[0])
+        total_points += patient_data.shape[0]
+
+        patient_batches[patient] = patient_data
     print("patients:", len(patient_batches))
-    return patient_batches
-
-def dsequencify(batched_data):
-    sequenced_batches = []
-    n_batches = len(batched_data)
-    
-    for batch in tqdm(batched_data):
-        n = len(batch)
-        n_modulo = n % SEQUENCE_LENGTH
-        batch_sequence_tuples = []
-        
-        # If len(sequence) < SEQUENCE_LENGTH
-        if n < SEQUENCE_LENGTH:
-            feats = batch[FEAT_LIST]
-            labels = batch[LABEL]
-            batch_sequence_tuples.append( (feats,labels) )
-            
-        # If len(sequence) >= SEQUENCE_LENGTH
-        elif n >= SEQUENCE_LENGTH:
-            n_modulo = n % SEQUENCE_LENGTH
-            n_full_sequences = int((n-n_modulo)/SEQUENCE_LENGTH)
-            
-            for i in range(n_full_sequences):
-                start = i*SEQUENCE_LENGTH
-                end = i*SEQUENCE_LENGTH + SEQUENCE_LENGTH
-                feats = batch[FEAT_LIST][start:end]
-                labels = batch[LABEL][start:end]
-                batch_sequence_tuples.append( (feats, labels) )
-
-            if n-n_modulo != 0:
-                feats = batch[FEAT_LIST][(i+1)*SEQUENCE_LENGTH:]
-                labels = batch[LABEL][(i+1)*SEQUENCE_LENGTH:]
-                batch_sequence_tuples.append( (feats, labels) )
-                
-        sequenced_batches.append(batch_sequence_tuples)
-    
-    n_sequence_batches = len(sequenced_batches)
-    
-    if n_batches != n_sequence_batches:
-        print("n_batches:", n_batches, "n_sequence_batches:", n_sequence_batches)
-        raise Exception("Error in sequencing")
-    return sequenced_batches
+    print("Batchify total_points:", total_points)
+    return patient_batches, sepsis_patients
 
 def sequencify(batched_data):
-    sequenced_batches = []
+    sequenced_batches = {}
     n_batches = len(batched_data)
-    print("n_batches:", n_batches)
-    #switch = True
-    #temp = None
+    print("n_batches:", n_batches, len(batched_data.keys()))
     it_NaN_batches = 0
-    for batch in tqdm(batched_data):
-        n = len(batch)
-        #n_modulo = n % SEQUENCE_LENGTH
-        #n_full_sequences = int((n-n_modulo)/SEQUENCE_LENGTH)
+    points_in_NaN = 0
+    if1 = 0; if2 = 0
+    total = 0
+    for patient in tqdm(batched_data.keys()):
+        n = len(batched_data[patient])
         batch_sequence_tuples = []
         batch_sequence_feats = []
         batch_sequence_labels = []
         
-        #print("n:", n)
-        #print("batch:", batch.shape)
-        #batch = 
-        if batch.isnull().all().all():
-            print("All NaN", )
-        batch[FEAT_LIST] = batch[FEAT_LIST].interpolate(method='linear', 
+        batched_data[patient][FEAT_LIST] = batched_data[patient][FEAT_LIST].interpolate(method='linear', 
                           axis=0, # 0: (column)
                           limit=None, 
                           inplace=False, 
@@ -303,37 +257,28 @@ def sequencify(batched_data):
         print(batch.isnull().values.any())
         raise Exception("Pause")
         """
-        if batch.isnull().values.any():
+        if batched_data[patient].isnull().values.any():
             it_NaN_batches += 1
             print("Full NaN-batch:", it_NaN_batches)
-            #print(batch.shape)
-            #print(batch[FEAT_LIST])
+            points_in_NaN += batched_data[patient].shape[0]
             continue
 
         # Torch tensor shape: (N, L, H_in)
         #N = n; L = SEQUENCE_LENGTH; H_in = len(FEAT_LIST)
         if n < SEQUENCE_LENGTH:
-            feats = batch[FEAT_LIST]
-            labels = batch[LABEL]
-            #print("---------------")
-            #print("Feats1:", feats)
-            #print("Feats2:", feats.values)
+            feats = batched_data[patient][FEAT_LIST]
+            labels = batched_data[patient][LABEL]
             feats = torch.Tensor(feats.values)
             labels = torch.Tensor(labels.values)
-            #labels = torch.reshape(labels, (1,len(labels)))
             labels = torch.reshape(labels, (len(labels),1))
-
-            #print("Type:", feats)
-            #print("---------------")
-            # TODO: do labels
-            # TODO: Check for all NaN!
-            #batch_sequence_tuples.append( (feats,labels) )
             
             batch_sequence_feats.append(feats)
             batch_sequence_labels.append(labels)
+            if1 += 1
 
-        
         elif n >= SEQUENCE_LENGTH:
+            total += batched_data[patient].shape[0]
+
             n_modulo = n % SEQUENCE_LENGTH
             n_full_sequences = int((n-n_modulo)/SEQUENCE_LENGTH)
             
@@ -341,173 +286,143 @@ def sequencify(batched_data):
                 start = i*SEQUENCE_LENGTH
                 end = i*SEQUENCE_LENGTH + SEQUENCE_LENGTH
                 
-                feats = batch[FEAT_LIST][start:end]
-                labels = batch[LABEL][start:end]
+                feats = batched_data[patient][FEAT_LIST][start:end]
+                labels = batched_data[patient][LABEL][start:end]
                 
-                #print("Feats1:", type(feats), feats.shape, feats)
-                #print("Feats2:", feats.values)
                 feats = torch.Tensor(feats.values)
                 labels = torch.Tensor(labels.values)
-                #labels = torch.reshape(labels, (1,len(labels)))
                 labels = torch.reshape(labels, (len(labels),1))
-
-                #print("Type:", type(feats), feats.shape, feats)
-                #raise Exception("PAUSE")
-                #batch_sequence_tuples.append( (feats, labels) )
-                
+ 
+                if2 += feats.shape[0]
                 batch_sequence_feats.append(feats)
                 batch_sequence_labels.append(labels)
-
-
 
             if n-n_modulo != 0:
-                feats = batch[FEAT_LIST][(i+1)*SEQUENCE_LENGTH:]
-                labels = batch[LABEL][(i+1)*SEQUENCE_LENGTH:]
+                feats = batched_data[patient][FEAT_LIST][(i+1)*SEQUENCE_LENGTH:]
+                labels = batched_data[patient][LABEL][(i+1)*SEQUENCE_LENGTH:]
                 feats = torch.Tensor(feats.values)
                 labels = torch.Tensor(labels.values)
-                #labels = torch.reshape(labels, (1,len(labels)))
                 labels = torch.reshape(labels, (len(labels),1))
-
-                #print("---------------")
-                #print("Feats1:", feats)
-                #print("Feats2:", feats.values)
-                #print("Type:", feats)
-                #print("---------------")
-                # TODO: do labels
-                #batch_sequence_tuples.append( (feats, labels) )
-                
-                #print("f1:", feats.shape)
-                #print("l1:", labels.shape, labels)
-                # Pad label
-                #left_padding = 0; right_padding = 4
-                #label_padding = nn.ConstantPad1d((left_padding, right_padding), 0)
-                #print("l15:", label_padding)
-                #labels = label_padding(labels.T)
-                #print("l2:", labels.shape, labels)
 
                 batch_sequence_feats.append(feats)
                 batch_sequence_labels.append(labels)
                 
-                #if switch:
-                    #print("b1:", feats.shape)
-                    #print("b1:", feats)
-                    #temp = feats
-                    #switch = False
+                if2 += feats.shape[0]
                 
-        #batch_feats = batch[FEAT_LIST]
         # T: longest sequence
         # B: batch size
         # *: Any number of dimensions
-        #print("TEST", batch_sequence_labels[0].shape)
-        #for i in batch_sequence_labels:
-            #print("labels:", i.shape)
-        #label1 = torch.reshape(batch_sequence_labels[0], (1,len(batch_sequence_labels[0])))
-        #print("label1:", label1.shape, label1)
-        
         padded_batch_labels = nn.utils.rnn.pad_sequence(batch_sequence_labels, batch_first=True, padding_value=0.0)
-        #print(padded_batch_labels.shape)
-        
-        #raise Exception("LLL")
-        #raise Exception("Pause1")
         # Pad sequences:
         padded_batch_feats = nn.utils.rnn.pad_sequence(batch_sequence_feats, batch_first=True, padding_value=0.0)
-        #print("feats:", padded_batch_feats.size(), "labels:", padded_batch_labels.size())
-        #print("fff:", padded_batch_feats.shape[0])
-        #for i in range(padded_batch_feats.shape[0]):
-            #print("feats:", padded_batch_feats, "labels:", padded_batch_labels)
-        #raise Exception("Pause")
-            
-        sequenced_batches.append( (padded_batch_feats, padded_batch_labels) )
-        
-    #print("TEST1:")
-    #print(temp.shape)
-    #print(temp)  
-    #print("TEST2:")
-    #print(sequenced_batches[-1][0].shape)
-    #print(sequenced_batches[0][-1])
-    #ind = 3
-    #print("Feats:", sequenced_batches[ind][0].shape)
-    #print("Labels:", sequenced_batches[ind][1].shape)
-    #print("Feats:", sequenced_batches[ind][0])
-    #print("Labels:", sequenced_batches[ind][1])
-    
-    #print("sequenced_batches:", sequenced_batches[-2])
-    #print(len(sequenced_batches), n_batches, len(sequenced_batches)+it_NaN_batches == n_batches)
-    # raise Exception("PAUSE FINAL")
+        sequenced_batches[patient] = (padded_batch_feats, padded_batch_labels)
+
+    sequencify_total_points = 0
+    for patient in sequenced_batches.keys():
+        sequencify_total_points += sequenced_batches[patient][0].shape[0] * sequenced_batches[patient][0].shape[1]
+    print("sequencify_total_points:", sequencify_total_points, "NaN:", points_in_NaN, "dif:", total-points_in_NaN)
+    print("points_in_NaN:", points_in_NaN)
+    print("if1:", if1)
+    print("if2:", if2)
+    print("total:", total, "NaN:", points_in_NaN, "sum:", total+points_in_NaN)
+    print("sequencify_total_points-total:", sequencify_total_points-total)
     return sequenced_batches
 
-def splitData(sequenced_batches, test_size=0.3, shuffle=False):
+def splitData(sequenced_batches, sepsis_patients, test_size, only_patients=False):
     n_batches = len(sequenced_batches)
-    #print("N_batches:", n_batches)
+    n_sepsis_patients = len(sepsis_patients)
     
-    n_test = int(round(test_size * n_batches))
-    n_train = n_batches - n_test
-    if shuffle:
-        random.shuffle(sequenced_batches)
+    # Get total n patients for split 
+    #n_test = int(round(test_size * n_batches))
+    #n_train = n_batches - n_test
     
-    """
-    # --- Check sentence lengths --- #
-    n_sequences = 0
-    ind = 0
-    sorting_dict = {}
-    batch_sizes = []
-    for batch in sequenced_batches:
-        #print("batch:", batch[0].shape)
-        n_sequence = batch[0].shape[0]
-        batch_sizes.append(n_sequence)
-        sorting_dict[str(ind)] = batch
-        n_sequences += n_sequence
-        ind += 1
-        
-    print("n_sequences:", n_sequences, "test:", int(round(n_sequences*test_size)), "train:", n_sequences-int(round(n_sequences*test_size)))
-    test = int(round(n_sequences*test_size))
-    train = n_sequences-int(round(n_sequences*test_size))
+    # Get n patients with sepsis for split
+    n_test_sepsis_patients = int(round(test_size * n_sepsis_patients))
+    n_train_sepsis_patients = n_sepsis_patients - n_test_sepsis_patients
     
-    # Match nr patients with nr sequences
-    train = []
-    test = []
-    button = True
-    for i in range(len(batch_sizes)):
-        max_val = max(batch_sizes)
-        batch_sizes.remove(max_val)
-        if button:
-            train.append(sorting_dict[str(i)])
-            button = False
-        else:
-            test.append(sorting_dict[str(i)])
-            button = True
-    
-    print("train:", len(train))
-    print("test:", len(test))
-    n_train_sequences = 0
-    for train_batch in train:
-        #print("batch:", batch[0].shape)
-        n_train_sequence = train_batch[0].shape[0]
-        n_train_sequences += n_train_sequence
-    print("n_train_sequences:", n_train_sequences)
+    # List of all patients
+    patients = list(sequenced_batches.keys())
 
-    n_test_sequences = 0
-    for test_batch in test:
-        #print("batch:", batch[0].shape)
-        n_test_sequence = test_batch[0].shape[0]
-        n_test_sequences += n_test_sequence
-    print("n_test_sequences:", n_test_sequences)
-    raise Exception("PAUSE")
-    """
-    train = sequenced_batches[:n_train]
-    test = sequenced_batches[n_train:]
+    # Remove sepsis patients from data
+    for sepsis_patient in sepsis_patients:
+        patients.remove(sepsis_patient)
+    #print("Patients:", len(patients))
+    patients_without_sepsis = patients
+    patients_with_sepsis = sepsis_patients
     
-    #print("Train:", len(train), "Test:", len(test), "(train+test)", len(train)+len(test), n_batches)
+    n_healthy = len(patients_without_sepsis)
+    n_test_healthy_patients = int(round(test_size * n_healthy))
+    n_train_healthy_patients = n_healthy - n_test_healthy_patients
+    
+    # Get patient splits for healthy and sepsis patients
+    train_healthy_patients = patients_without_sepsis[:n_train_healthy_patients]
+    test_healthy_patients = patients_without_sepsis[n_train_healthy_patients:]
+    train_sepsis_patients = patients_with_sepsis[:n_train_sepsis_patients]
+    test_sepsis_patients = patients_with_sepsis[n_train_sepsis_patients:]
+    
+    """
+    print("train_healthy_patients:", len(train_healthy_patients), len(train_healthy_patients)/(n_train_healthy_patients+n_test_healthy_patients))
+    print("test_healthy_patients:", len(test_healthy_patients), len(test_healthy_patients)/(n_train_healthy_patients+n_test_healthy_patients))
+    print("train_sepsis_patients:", len(train_sepsis_patients), len(train_sepsis_patients)/(n_train_sepsis_patients+n_test_sepsis_patients))
+    print("test_sepsis_patients:", len(test_sepsis_patients), len(test_sepsis_patients)/(n_train_sepsis_patients+n_test_sepsis_patients))
+    """
+    #print("Total:", n_batches, n_sepsis_patients)
+    #print("train:", len(train_healthy_patients), len(train_sepsis_patients))
+    #print("test:", len(test_healthy_patients), len(test_sepsis_patients))
+    
+    train_patients = train_healthy_patients + train_sepsis_patients
+    test_patients = test_healthy_patients + test_sepsis_patients
+    
+    random.shuffle(train_patients)
+    random.shuffle(test_patients)
+    
+    if only_patients:
+        train = []
+        for patient in patients_with_sepsis:
+            train.append(sequenced_batches[patient])
+        return train
+    # Create trainset
+    train = []
+    for patient in train_patients:
+        train.append(sequenced_batches[patient])
+    # Create testset
+    test = []
+    for patient in test_patients:
+        test.append(sequenced_batches[patient])
+
+    random.shuffle(train)
+    random.shuffle(test)
+
+    print("Train:", len(train), "Test:", len(test), "(train+test)", len(train)+len(test), n_batches)
+    
+    #"""
+    print("--- Randomness check ---")
+    total_points = 0
+    total_test_points = 0
+    total_train_points = 0
+    for patient in sequenced_batches.keys():
+        #print(batch)
+        #raise Exception("TEST")
+        total_points += sequenced_batches[patient][0].shape[0] * sequenced_batches[patient][0].shape[1]
+    for batch in train:
+        total_train_points += batch[0].shape[0] * batch[0].shape[1]
+    for batch in test:
+        total_test_points += batch[0].shape[0] * batch[0].shape[1]
+    print("total_points:", total_points)
+    print("total_train_points:", total_train_points)
+    print("total_test_points:", total_test_points)
+    print("--- Randomness check ---")
+    #"""
     return train, test
 
 """
 data = readData(DATA_PATHS[0], raw=False)
 data = preprocess(data, print_minmax=True)
-quickPrint(data)
-batched_data = batchify(data)
+#quickPrint(data)
+batched_data, sepsis_patient_ids = batchify(data)
 sequenced_batches = sequencify(batched_data)
-train, test, splitData(sequenced_batches, test_size=0.3, shuffle=False)
-"""
+train, test = splitData(sequenced_batches, sepsis_patient_ids, test_size=0.3)
+#"""
 # sequenced_batches = sequencify(batched_data)
 
 

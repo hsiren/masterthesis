@@ -17,9 +17,10 @@ datahandler.py:
     [] Make compatible with GPU
     [-] Handle data split based on n-sequences (not n_patients)
 RNN.py:
-    [] Adjust model for batched data:
-        [] Make compatible with GPU
-    [] Fix loss function data type
+    [X] Adjust model for batched data:
+        [x] Make compatible with GPU
+    [x] Fix loss function data type
+    [] Backprop per sequence (not per batch)
 """
 
 # Paths to data:
@@ -33,11 +34,13 @@ DATA_PATHS = FEAT_PATHS
 # Hyperparameters:
 SEQUENCE_LENGTH = 10
 EPOCHS = 100
-HIDDEN_DIM = 20
-LAYER_DIM = 8
-LEARNING_RATE = 0.001
+HIDDEN_DIM = 500
+LAYER_DIM = 1
+LEARNING_RATE = 0.0001
 # Loss weight:
-CLASS_WEIGHT = [0.0]
+MAJORITY_CLASS_WEIGHT = 1.0
+MINORITY_CLASS_WEIGHT = 1.0
+SINGLE_OUTPUT = False
 #N_SEQUENCES = 5000
 
 
