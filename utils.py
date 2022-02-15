@@ -279,7 +279,10 @@ def read_compressed_datafile(fname: str, verbose=False, nrows: int = None) -> pd
         pidprint("Start reading...")
     try:
         pidprint("New version", flag="info")
-        F = pd.read_csv(fname, sep=";", compression='gzip')
+        if nrows is not None:
+            F = pd.read_csv(fname, sep=";", compression='gzip', nrows=nrows)
+        else:
+            F = pd.read_csv(fname, sep=";", compression='gzip')
     except:
         pidprint("Old version", flag="info")
         

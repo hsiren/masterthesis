@@ -1,0 +1,17 @@
+{
+    "data":{
+        "SEQUENCE_LENGTH":[10],
+        "THRESHOLD":[30]
+    },
+    "train":{
+        "LR":[0.001],
+        "EPOCHS":[400],
+        "LOSS":["MSE"]
+    },
+    "model":{
+        "MODEL":["RNN", "GRU"],
+        "HIDDEN_DIM":[24],
+        "LAYER_DIM":[1]
+    }
+
+}

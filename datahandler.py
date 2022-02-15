@@ -9,21 +9,22 @@ import  numpy as np
 import pandas as pd
 import random
 import matplotlib.pyplot as plt
-from sklearn.preprocessing import MinMaxScaler
+from sklearn.preprocessing import MinMaxScaler, StandardScaler
 from sklearn.model_selection import train_test_split
 from tqdm import tqdm
 import math
 import torch
 from torch import nn
+from sklearn.utils.class_weight import compute_class_weight
+from sklearn.model_selection import GroupKFold
 
-from params import DATA_PATHS, FEAT_LIST, SEQUENCE_LENGTH, LABEL, SEQUENCE_LENGTH
+from params import DATA_FILENAME, DATA_PATHS, FEAT_LIST, LABEL
 
-
-def readData(file_path, raw=False):
+def readData(file_path, raw=False, prints=False):
     
     if raw:
         print("Reading file:", file_path)
-        df = read_compressed_datafile(file_path)
+        df = read_compressed_datafile(file_path, nrows=200)
         print("Features:\n", len(df.columns))
         print("Data:", df.shape)
         
@@ -33,26 +34,28 @@ def readData(file_path, raw=False):
         
         # 9910 totalt
         
-        print(df.head)
+        #print(df.head)
         print("Extracting X & Y...")        
         
         # Each row of F contains a flattened 3d time series + context info
-        X = df[[s for s in df.columns if "feats__" in s]].values
+        X = df[[s for s in df.columns if "feats__d" in s]].values
+        patient_ids = df[[s for s in df.columns if "group__uid" in s]].values
+        print("patient_ids:", patient_ids.shape)
         # X = df[cols].values #Do not use!
         # X = df[[s for s in df.columns if "feats__" in s]].values
         #print("X:", X.shape)
         #x = X[0].reshape((-1, 5))
-        print("X:", X.shape)
 
         Y = df[["target__y"]].values.reshape(-1, 1)
+        print("X:", X.shape)
         print("Y:", Y.shape)
 
         #Z = df.values.reshape(-1,3)
         print("Reshaping...")
         x = X[0].reshape(-1, 3)
-        print("X:", X.shape)
+        print("X_:", X.shape, x.shape, x.reshape(-1, 3).shape)
         y = Y[0]
-        print("Y:", Y.shape)
+        print("Y_:", Y.shape)
 
         # x is an example of a 2Hz, 3d time series of length 60 min 
         # ndarray of size (n_samples, 3) 
@@ -69,39 +72,31 @@ def readData(file_path, raw=False):
         plt.legend(signames)
         plt.title("Target:{}".format(y))
         plt.savefig("Example signals.pdf")
+        plt.show()
         plt.close()
         raise Exception("Raw-stop")
     else:
-        print("Reading file:", file_path)
         df = read_compressed_datafile(file_path)
-        print("Features:\n", len(df.columns))
-        for col in df.columns:
-            print(col)
-        print("Data:\n", df.head)
-        print(df.shape)
-        # (134668,31)
-        print("Plotting:")
-        #df[["feats__btb_mean","feats__rf_mean","feats__rf_std","target__y",]].iloc[1:100].plot.line(subplots=True)
-        print("Plotting done.")
-        print(df["target__y"].unique())
-        print("Group__uid:\n", len(df["group__uid"].unique()), df["group__uid"].unique())
+        if prints:
+            print("Reading file:", file_path)
+            print("Features:\n", len(df.columns))
+            for col in df.columns:
+                print(col)
+            print("Data:\n", df.head)
+            print(df.shape)
+            #df[["feats__btb_mean","feats__rf_mean","feats__rf_std","target__y",]].iloc[1:100].plot.line(subplots=True)
+            print(df["target__y"].unique())
+            print("Group__uid:\n", len(df["group__uid"].unique()))#, df["group__uid"].unique())
     return df
 
-# Do preprocessing:
-# TODO: Normmalize data.
-def preprocess(data, print_minmax=False):
-    print("min:", data["feats__btb_mean"].min(), data["feats__rf_mean"].min())
+# TODO: Triple check with plots etc...
+def replaceGapsWithNaN(data, print_minmax=True):
+    replacement_value=math.nan
+    gap_value = data["feats__btb_mean"].min()
+    data = data.replace(data["feats__btb_mean"].min(), replacement_value)
+    data = data.replace(data["feats__rf_mean"].min(), replacement_value)
     
-    # Replace missing values with NaN
-    rep_val = math.nan
-    data = data.replace(data["feats__btb_mean"].min(), rep_val)#float("nan"))
-    data = data.replace(data["feats__rf_mean"].min(), rep_val)#float("nan"))
-    #print("labels:", labels.shape)
-    print("data:", data.shape, data.head())
-    # Remove first value
-    #data = data.drop(0, axis=0)
-    
-    # print min max vals in data
+    # Check for columns with gaps
     if print_minmax:
         print("feats__btb_mean:", data["feats__btb_mean"].min(), data["feats__btb_mean"].max())
         print("feats__rf_mean:", data["feats__rf_mean"].min(), data["feats__rf_mean"].max())
@@ -127,144 +122,184 @@ def preprocess(data, print_minmax=False):
         print("feats__bw:", data["feats__bw"].min(), data["feats__bw"].max())
         print("feats__sex:", data["feats__sex"].min(), data["feats__sex"].max())
         print("feats__pnage_days:", data["feats__pnage_days"].min(), data["feats__pnage_days"].max())
-        #print("BW (unique):",  data["feats__bw"].unique())
 
-    # --- Normalize between -1 and 1 --- #
+    #print(data["target__y"].isnull().values.any())
+    #print(data["group__uid"].isnull().values.any())
+    #raise Exception("Hello")
+    return data, gap_value
+
+def standardizeData(data):
+    """
+    NOTE: The standard scaler ignores NaN-values.
+    """
     # Get features from data
-    prescaled_data = data[FEAT_LIST]
-    
-    # Separate labels (they are not scaled)
-    labels = data[LABEL]
+    #prescaled_data = data[FEAT_LIST]
+    #labels = data[LABEL]
 
-    scaler = MinMaxScaler(feature_range=(0,1))
-    scaler = scaler.fit(prescaled_data)
-    scaled_data = scaler.transform(prescaled_data)
-    scaled_data = pd.DataFrame(scaled_data, columns=FEAT_LIST)
-    scaled_data[LABEL] = labels
-    #data = scaled_data
-    # --- Normalize between -1 and 1 --- #
+    scaler = StandardScaler()
+    scaler = scaler.fit(data[FEAT_LIST])
+    data[FEAT_LIST] = scaler.transform(data[FEAT_LIST])
+    return data, scaler
 
-    # Add group id to scaled data:
-    scaled_data["group__uid"] = data["group__uid"]
-    data = scaled_data
-    
-    #data = scaled_data.insert(0, "group__uid", data["group__uid"])
-    #print(data.shape, data.head)
+def scaleTestSet(test_set, scaler):
+    test_set[FEAT_LIST] = scaler.transform(test_set[FEAT_LIST])
+    return test_set
 
-    # Remove first value (has nothing)
+def removeFirst(data):
+    #print("removeFirst")
+    orig_shape = data.shape
     data = data.drop(0, axis=0)
+    data = data.reset_index(drop=True)
+    new_shape = data.shape
+    #print("- Verified: " + "[" + str(orig_shape[0]-1==new_shape[0]) +"]")
+    return data
+
+def removeNaNPatients(data):
+    #print("removeNaNPatients")
+    #print("- Data shape:", data.shape)
+
+    it_NaN_batches = 0
+    patients = data["group__uid"].unique()
+    NaN_patients = []
+    NaN_batch_found = False
+    total_points_in_NaN = 0
     
-    #print(data.shape, data.head)
+    ### Verification ###
+    #"""
+    orig_data_size = data.shape[0]
+    #"""
+    ### Verification ###
+    
+    for patient in patients:
+        patient_data = data.loc[data['group__uid'] == patient]
+        patient_data = patient_data[FEAT_LIST]
+        for col in patient_data:
+            unique = patient_data[col].unique().tolist()
+            if len(unique) == 1 and math.isnan(unique[0]):
+                # full NaN-col found! (remove full patient)
+                NaN_batch_found = True
+                
+
+                total_points_in_NaN += len(patient_data[col].tolist())
+                break
+        
+        if NaN_batch_found:
+            it_NaN_batches += 1
+            NaN_patients.append(patient)
+            NaN_batch_found = False
+
+    #print("- NaN_patients:", it_NaN_batches)
+    #print("- Total points to remove:", total_points_in_NaN)
+    # remove rows with NaN_patient id:
+    for NaN_patient in NaN_patients:
+        data = data[data["group__uid"] != NaN_patient]
+        #data = data.drop(data.loc[data['group__uid'] == NaN_patient].index)#, inplace=True)
+
+    # Reset indices of the dataframe
+    data = data.reset_index(drop=True)
+    
+    ### Verification ###
+    """
+    print("- New data shape:", data.shape)
+    print("- Verified: " + "[" + str(orig_data_size-data.shape[0]==total_points_in_NaN) +"]")
+    #"""
+    ### Verification ###
+    
+    return data
+
+def interpolate(data, THRESHOLD):
+    print("interpolate")
+    patients = data["group__uid"].unique()
+    for patient in tqdm(patients):
+        data.loc[data['group__uid'] == patient] = data.loc[data['group__uid'] == patient].interpolate(method='linear', 
+                                                                                                      axis=0, # 0: (column)
+                                                                                                      limit=THRESHOLD,
+                                                                                                      inplace=False, 
+                                                                                                      limit_direction="both", 
+                                                                                                      limit_area=None, 
+                                                                                                      downcast=None)
+    return data
+
+def removeRestNaNs(data):
+    data = data.dropna(axis=0, how="any")
     return data
 
 def devicePrint(device):
     mode = None
     if device == "cuda":
         mode = "GPU"
+        print("===== {Running on} =====")
+        print("=====    {"+device+"}    =====")
+        print("===== {Running on} =====")
     else:
         mode = "CPU"
-    print("===== {Running on} =====")
-    print("{"+device+"} ")
-    print("===== {Running on} =====")
-    
-def quickPrint(df, name="quickPrint"):
-    print("---", name, "---")
-    for col in df.columns:
-        print(col)
-    print("Data:\n", df.head)
-    print(df.shape)
-    
-    print("group__uid:\n", df["target__y"].unique())
-    print("group__uid:\n", df["target__y"].value_counts())
-
-    
-    """
-    patients = df["group__uid"].unique()
-    positive_labels_in_batch = 0
-    sepsis_patients = []
-    for patient in patients:
-        patient_data=df.loc[df['group__uid'] == patient]
-        #print(patient_data.shape)
-        #print("----- Patient -----")
-        #print(patient)
-        #print("Points/patient:", patient_data.shape[0])
-        #print("Labels:", patient_data["target__y"].unique())
-        vc = patient_data["target__y"].value_counts()
-        #print("Value counts:\n", vc, vc.shape[0])
-        if vc.shape[0] == 2:
-            positive_labels_in_batch += 1
-            sepsis_patients.append(patient)
-            print("Points/patient:", patient_data.shape[0])
-        #print("----- Patient -----")
-    print("positive_labels_in_batch:", positive_labels_in_batch)
-    #"""
-    print("---", name, "---")
+        print("===== {Running on} =====")
+        print("=====    {"+device+"}     =====")
+        print("===== {Running on} =====")
 
 def batchify(data):
-    print("Group__uid:\n", len(data["group__uid"].unique()), data["group__uid"].unique())
+    """
+    Note:
+        - Creates batches from data where each batch represents one patient
+        - Checks whether batch/patient only contains NaN-values and removes said batch
+    """
+    #print("batchify")
+    #print("- n_'Group__uid':", len(data["group__uid"].unique()))
     patients = data["group__uid"].unique()
     patient_batches = {}
     sepsis_patients = []
-    switch = True
     total_points = 0
     for patient in patients:
         patient_data=data.loc[data['group__uid'] == patient]
         vc = patient_data["target__y"].value_counts()
         if vc.shape[0] == 2:
             sepsis_patients.append(patient)
-            print("---- " + patient + " ----")
-            print("Points/patient (sepsis):", patient_data.shape[0], "0:", vc[0], "1:", vc[1])
+            #print("- Points/patient (sepsis):", patient_data.shape[0], "0:", vc[0], "1:", vc[1])
+            """
             x = np.arange(patient_data["target__y"].shape[0])
             plt.plot(x, patient_data["target__y"])
             plt.title(patient)
             plt.show()
-            print("---------------------------------------------")
+            #"""
+            #print("---------------------------------------------")
 
         else:
-            print("Points/patient:", patient_data.shape[0])
+            #print("- Points/patient:", patient_data.shape[0])
+            pass
         total_points += patient_data.shape[0]
 
         patient_batches[patient] = patient_data
-    print("patients:", len(patient_batches))
-    print("Batchify total_points:", total_points)
+    #print("- n_patients:", len(patient_batches))
+    #print("- n_total_points:", total_points)
     return patient_batches, sepsis_patients
 
-def sequencify(batched_data):
+def sequencify(batched_data, SEQUENCE_LENGTH):
+    """
+    NOTE:
+        - Dynamically sequencifies batches based on fixed SEQUENCE_LENGTH parameter.
+        - Pads overlapping values with zeros!
+    """
     sequenced_batches = {}
     n_batches = len(batched_data)
-    print("n_batches:", n_batches, len(batched_data.keys()))
+    #print("n_batches:", n_batches, len(batched_data.keys()))
+    total = 0
     it_NaN_batches = 0
     points_in_NaN = 0
-    if1 = 0; if2 = 0
-    total = 0
-    for patient in tqdm(batched_data.keys()):
+    m = 0
+    #for patient in tqdm(batched_data.keys()):
+    for patient in batched_data.keys():
         n = len(batched_data[patient])
         batch_sequence_tuples = []
         batch_sequence_feats = []
         batch_sequence_labels = []
         
-        batched_data[patient][FEAT_LIST] = batched_data[patient][FEAT_LIST].interpolate(method='linear', 
-                          axis=0, # 0: (column)
-                          limit=None, 
-                          inplace=False, 
-                          limit_direction="both", 
-                          limit_area=None, 
-                          downcast=None)
-        """
-        print("batch:", batch.shape)
-        print(batch[FEAT_LIST])
-        print(batch[FEAT_LIST].isnull().values.any())
-        print(batch.isnull().values.any())
-        raise Exception("Pause")
-        """
+        # Verify that no NaNs exist in data.
         if batched_data[patient].isnull().values.any():
-            it_NaN_batches += 1
-            print("Full NaN-batch:", it_NaN_batches)
-            points_in_NaN += batched_data[patient].shape[0]
-            continue
+            raise Exception("NaN found! (should not have)")
 
         # Torch tensor shape: (N, L, H_in)
         #N = n; L = SEQUENCE_LENGTH; H_in = len(FEAT_LIST)
+        # If the batch is smaller than the SEQUENCED_LENGTH, use max size.
         if n < SEQUENCE_LENGTH:
             feats = batched_data[patient][FEAT_LIST]
             labels = batched_data[patient][LABEL]
@@ -274,8 +309,8 @@ def sequencify(batched_data):
             
             batch_sequence_feats.append(feats)
             batch_sequence_labels.append(labels)
-            if1 += 1
 
+        # If batch is larger than the SEQUENCES_LENGTH, chop into pieces.
         elif n >= SEQUENCE_LENGTH:
             total += batched_data[patient].shape[0]
 
@@ -293,7 +328,6 @@ def sequencify(batched_data):
                 labels = torch.Tensor(labels.values)
                 labels = torch.reshape(labels, (len(labels),1))
  
-                if2 += feats.shape[0]
                 batch_sequence_feats.append(feats)
                 batch_sequence_labels.append(labels)
 
@@ -306,9 +340,7 @@ def sequencify(batched_data):
 
                 batch_sequence_feats.append(feats)
                 batch_sequence_labels.append(labels)
-                
-                if2 += feats.shape[0]
-                
+
         # T: longest sequence
         # B: batch size
         # *: Any number of dimensions
@@ -316,25 +348,37 @@ def sequencify(batched_data):
         # Pad sequences:
         padded_batch_feats = nn.utils.rnn.pad_sequence(batch_sequence_feats, batch_first=True, padding_value=0.0)
         sequenced_batches[patient] = (padded_batch_feats, padded_batch_labels)
-
+        
+    # Verification
+    """
+    for key in sequenced_batches.keys():
+        batch_feats, batch_labels = sequenced_batches[key]
+        print("batch_feats", batch_feats.shape)
+        print("batch_feats_final", batch_feats[-1])
+        print("batch_labels", batch_labels.shape)
+        print("batch_labels_final", batch_labels[-1])
+        raise Exception("STOP")
+    """
     sequencify_total_points = 0
     for patient in sequenced_batches.keys():
         sequencify_total_points += sequenced_batches[patient][0].shape[0] * sequenced_batches[patient][0].shape[1]
-    print("sequencify_total_points:", sequencify_total_points, "NaN:", points_in_NaN, "dif:", total-points_in_NaN)
-    print("points_in_NaN:", points_in_NaN)
-    print("if1:", if1)
-    print("if2:", if2)
-    print("total:", total, "NaN:", points_in_NaN, "sum:", total+points_in_NaN)
-    print("sequencify_total_points-total:", sequencify_total_points-total)
+    #print("- sequencify_total_points:", sequencify_total_points, "NaN:", points_in_NaN)
     return sequenced_batches
 
-def splitData(sequenced_batches, sepsis_patients, test_size, only_patients=False):
+def getOnlyTargetPatients(sequenced_batches, sepsis_patients):
+    """
+    Note: 
+        - Extracts only patients with sepsis and returns them.
+        - No splitting is done.
+    """
+    sequenced_sepsis_patients = []
+    for patient in sepsis_patients:
+        sequenced_sepsis_patients.append(sequenced_batches[patient])
+    return sequenced_sepsis_patients
+    
+def splitData(sequenced_batches, sepsis_patients, test_size, only_patients=False, shuffle=False):
     n_batches = len(sequenced_batches)
     n_sepsis_patients = len(sepsis_patients)
-    
-    # Get total n patients for split 
-    #n_test = int(round(test_size * n_batches))
-    #n_train = n_batches - n_test
     
     # Get n patients with sepsis for split
     n_test_sepsis_patients = int(round(test_size * n_sepsis_patients))
@@ -344,7 +388,9 @@ def splitData(sequenced_batches, sepsis_patients, test_size, only_patients=False
     patients = list(sequenced_batches.keys())
 
     # Remove sepsis patients from data
+    print("Sepsis_patients:", sepsis_patients)
     for sepsis_patient in sepsis_patients:
+        print("Sepsis_patients:", sepsis_patient)
         patients.remove(sepsis_patient)
     #print("Patients:", len(patients))
     patients_without_sepsis = patients
@@ -365,17 +411,19 @@ def splitData(sequenced_batches, sepsis_patients, test_size, only_patients=False
     print("test_healthy_patients:", len(test_healthy_patients), len(test_healthy_patients)/(n_train_healthy_patients+n_test_healthy_patients))
     print("train_sepsis_patients:", len(train_sepsis_patients), len(train_sepsis_patients)/(n_train_sepsis_patients+n_test_sepsis_patients))
     print("test_sepsis_patients:", len(test_sepsis_patients), len(test_sepsis_patients)/(n_train_sepsis_patients+n_test_sepsis_patients))
-    """
     #print("Total:", n_batches, n_sepsis_patients)
     #print("train:", len(train_healthy_patients), len(train_sepsis_patients))
     #print("test:", len(test_healthy_patients), len(test_sepsis_patients))
+    """
     
     train_patients = train_healthy_patients + train_sepsis_patients
     test_patients = test_healthy_patients + test_sepsis_patients
     
-    random.shuffle(train_patients)
-    random.shuffle(test_patients)
+    if shuffle:
+        random.shuffle(train_patients)
+        random.shuffle(test_patients)
     
+    # If only patients with sepsis is requested
     if only_patients:
         train = []
         for patient in patients_with_sepsis:
@@ -390,42 +438,171 @@ def splitData(sequenced_batches, sepsis_patients, test_size, only_patients=False
     for patient in test_patients:
         test.append(sequenced_batches[patient])
 
-    random.shuffle(train)
-    random.shuffle(test)
+    if shuffle:
+        random.shuffle(train)
+        random.shuffle(test)
 
     print("Train:", len(train), "Test:", len(test), "(train+test)", len(train)+len(test), n_batches)
-    
-    #"""
-    print("--- Randomness check ---")
-    total_points = 0
-    total_test_points = 0
-    total_train_points = 0
-    for patient in sequenced_batches.keys():
-        #print(batch)
-        #raise Exception("TEST")
-        total_points += sequenced_batches[patient][0].shape[0] * sequenced_batches[patient][0].shape[1]
-    for batch in train:
-        total_train_points += batch[0].shape[0] * batch[0].shape[1]
-    for batch in test:
-        total_test_points += batch[0].shape[0] * batch[0].shape[1]
-    print("total_points:", total_points)
-    print("total_train_points:", total_train_points)
-    print("total_test_points:", total_test_points)
-    print("--- Randomness check ---")
-    #"""
     return train, test
 
-"""
-data = readData(DATA_PATHS[0], raw=False)
-data = preprocess(data, print_minmax=True)
-#quickPrint(data)
-batched_data, sepsis_patient_ids = batchify(data)
-sequenced_batches = sequencify(batched_data)
-train, test = splitData(sequenced_batches, sepsis_patient_ids, test_size=0.3)
-#"""
-# sequenced_batches = sequencify(batched_data)
+def getClassWeights(data, sepsis_patient_ids):
+    n_samples = 0
+    #print(data["target__y"].head(5))
+    classes = np.array([0., 1.])
+    y = data["target__y"].to_numpy()
+    #print("y:", y.shape)
+    #weights = compute_class_weight("balanced", classes, y)
+    weights = compute_class_weight("balanced", classes=classes, y=y)
+    #print("weights:", weights)
+    class_weights = {"0": weights[0], "1": weights[1]}
+    return class_weights
+    
+def fillNaNs(data, gap_value):
+    data = data.fillna(gap_value, axis=0)
+    return data
 
+def splitSepsisData(data, test_split_ratio=0.1):
+    """
+    Note:
+        - Extracts patients with sepsis from non-sepsis data.
+        - test_split_ratio: Sets n patients into test set. 10% by default (1 patient)
+    """
+    #print("splitSepsisData")
+    patients = data["group__uid"].unique()
+    sepsis_patients = []
+    frames = []
+    for patient in patients:
+        patient_data=data.loc[data['group__uid'] == patient]
+        
+        vc = patient_data["target__y"].value_counts()
+        if vc.shape[0] == 2 or 1.0 in vc: # fix
+            sepsis_patients.append(patient)
+            frames.append(patient_data)
+            #print("- Points/patient (sepsis):", patient_data.shape[0], "0:", vc[0], "1:", vc[1])
+            """
+            x = np.arange(patient_data["target__y"].shape[0])
+            plt.plot(x, patient_data["target__y"])
+            plt.title(patient)
+            plt.show()
+            #"""
+            #print("---------------------------------------------")
+    
+    full_data = pd.concat(frames)
+    cols = ["group__uid", "target__y"] + FEAT_LIST
+    featurized_data = full_data[cols]
+    return featurized_data, sepsis_patients
 
-# --- Depricated --- #
-#data_tuples = sequenceTuples(data, 1000)
-# --- Depricated --- #
+def foldSepsisData(data, sepsis_patients, folds=None):
+    """
+    Note:
+        - Splits data into folds.
+        - if folds=None, leave-one-out cross validation will be used
+    """
+    #print("foldSepsisData")
+    train_data_list = []
+    test_data_list = []
+    
+    if folds is None: folds = len(sepsis_patients)
+    elif folds > len(sepsis_patients): raise Exception("Too many folds! Folds: " + str(folds) + "and N-sepsis patients: " + str(len(sepsis_patients)))
+    else: folds = folds
+
+    var = data[:10] #
+    group_kfold = GroupKFold(n_splits=folds)
+    n_groups = len(sepsis_patients)
+    group_kfold.get_n_splits(sepsis_patients, y=None, groups=sepsis_patients)
+    
+    sepsis_patients_df = pd.DataFrame(sepsis_patients)
+    for train, test in group_kfold.split(X=sepsis_patients, y=None, groups=sepsis_patients):
+        train_frames = []
+        test_frames = []
+
+        train_groups = sepsis_patients_df.iloc[train].to_numpy().T.tolist()[0]
+        test_groups = sepsis_patients_df.iloc[test].to_numpy().T.tolist()[0]
+        
+        for train_patient in train_groups:
+            train_frames.append(data.loc[data['group__uid'] == train_patient])
+        train_data = pd.concat(train_frames)
+        
+        for test_patient in test_groups:
+            test_frames.append(data.loc[data['group__uid'] == test_patient])
+        test_data = pd.concat(test_frames)
+        
+        train_data_list.append(train_data)
+        test_data_list.append(test_data)
+        
+    return train_data_list, test_data_list
+
+# --- NOT USED --- #  
+def HfoldSepsisData(data, sepsis_patients):
+    print("foldSepsisData")
+    #print("data:", data.shape)
+    #print("Sepsis_patients:", len(sepsis_patients))
+    train_data_list = []
+    test_data_list = []
+    copy_sepsis_patients = sepsis_patients
+    for i, patient in enumerate(sepsis_patients):
+        frames = []
+        #batched_train_data = {}
+        #batched_test_data = {}
+
+        copy_sepsis_patients = sepsis_patients[:]
+        copy_sepsis_patients.remove(patient)
+        train_patients = copy_sepsis_patients
+        test_patient = patient
+
+        #print("Test lens:", len(train_patients), len([test_patient]))
+        for patient2 in train_patients:
+            #batched_train_data[patient2] = data.loc[data['group__uid'] == patient2]
+            frames.append(data.loc[data['group__uid'] == patient2])
+        
+        train_data = pd.concat(frames)
+        test_data = data.loc[data['group__uid'] == test_patient]
+        
+        train_data_list.append(train_data)
+        test_data_list.append(test_data)
+    
+    #print(len(train_data_list), len(test_data_list))
+    return train_data_list, test_data_list
+# --- NOT USED --- #  
+
+def initial_prerpocessing_feat(folds=None):
+    """
+    NOTE:
+        To be called only once.
+    """
+    #print("--- initial_prerpocessing_feat ---")
+    data = readData(DATA_PATHS[0], raw=False)
+    data = removeFirst(data)
+
+    #data, gap_value = replaceGapsWithNaN(data, print_minmax=False)
+    #data = removeNaNPatients(data)
+    #data = fillNaNs(data, gap_value)
+
+    data, sepsis_patients = splitSepsisData(data)
+    train_folds, test_folds = foldSepsisData(data, sepsis_patients, folds)
+    
+    #data = interpolate(data)
+    #data = removeRestNaNs(data)
+    
+    #data.to_pickle(DATA_FILENAME)
+    return train_folds, test_folds
+    #print("--- initial_prerpocessing_feat [DONE] ---")
+
+def preprocessing_pipeline_feat(THRESHOLD, SEQUENCE_LENGTH):
+    print("--- preprocessing_pipeline_feat ---")
+    try:
+        data = pd.read_pickle(DATA_FILENAME)
+    except FileNotFoundError:
+        initial_prerpocessing_feat(THRESHOLD)
+        data = pd.read_pickle(DATA_FILENAME)
+    
+    batched_data, sepsis_patient_ids = batchify(data)
+    sequenced_batches = sequencify(batched_data, SEQUENCE_LENGTH)
+    class_weights = getClassWeights(data, sepsis_patient_ids)
+    sequenced_data = getOnlyTargetPatients(sequenced_batches, sepsis_patient_ids)
+    #data = splitData(sequenced_batches, sepsis_patient_ids, test_size=0.3)
+    print("--- preprocessing_pipeline_feat [DONE] ---")
+    return sequenced_data, class_weights
+
+#initial_prerpocessing_feat()
+#preprocessing_pipeline_feat(60, 10)
